@@ -1,0 +1,95 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title C4 Container Diagram — "Будущее 2.0" через 1 год
+
+Person(business, "Бизнес-пользователь", "Сотрудник компании с соответствующими доступами")
+Person(dataEng, "Data-инженер", "Создаёт витрины, ML-модели")
+
+System_Boundary(security, "API GW & Auth") {
+    Container(kong, "Kong API Gateway", "Lua", "Маршрутизация, rate-limit, JWT")
+    Container(keycloak, "Keycloak", "Java", "SSO, JWT, RBAC")
+    Rel(kong, keycloak, "Валидирует JWT", "HTTPS")
+}
+
+System_Boundary(legacy, "Легаси-домен") {
+    ContainerDb(oldDWH, "SQL Server 2008", "RDBMS", "Остатки легаси-отчётов")
+    Container(pbApp, "Power Builder", "Desktop", "Легаси Power Builder")
+    Rel(pbApp, oldDWH, "Читает/пишет", "JDBC")
+}
+
+System_Boundary(datalake, "Data Lakehouse") {
+    ContainerDb(bronze, "Bronze Layer", "Delta Lake / ADLS", "Сырые данные")
+    ContainerDb(silver, "Silver Layer", "Delta Lake", "Очищенные объекты")
+    ContainerDb(gold, "Gold Layer", "Delta Lake", "Бизнес-витрины")
+    Container(dremio, "Dremio", "SQL Engine", "Исполняет SQL")
+    Container(qBridge, "Query Bridge", "Kotlin / Spring", "REST → SQL без SQL в клиентах")
+    Rel(qBridge, dremio, "JDBC / REST", "SQL на витрины")
+}
+
+System_Boundary(domainClin, "Домен 'Клиники'") {
+    Container(clinicAPI, "Clinic API", "Kotlin / Spring", "Приёмы, карты, расписание")
+    ContainerDb(clinicDB, "Clinic DB", "PostgreSQL", "Операционные клинические данные")
+    Container(clinicETL, "Clinic ETL", "Spark", "Публикация событий")
+    Rel(clinicAPI, clinicDB, "Читает/пишет", "JDBC")
+    Rel(clinicETL, clinicDB, "Инкрементальная выгрузка", "JDBC")
+}
+
+System_Boundary(domainAI, "Домен 'ИИ-Сервисы'") {
+    Container(aiAPI, "AI API", "Python FastAPI", "Инференс моделей")
+    ContainerDb(aiStore, "Feature Store", "Feast / Redis", "Фичи для ML")
+    Container(aiETL, "AI ETL", "Spark", "Тренировка + публикация")
+    Rel(aiAPI, aiStore, "Читает фичи", "gRPC")
+    Rel(aiETL, aiStore, "Пишет фичи", "gRPC")
+}
+
+System_Boundary(domainFin, "Домен 'Финтех'") {
+    Container(finAPI, "Fin API", "Go + Java", "Счета, кредиты, платежи")
+    ContainerDb(finDB, "Fin DB", "PostgreSQL", "Операционные фин-данные")
+    Container(finETL, "Fin ETL", "Spark", "Публикация фин-сводок")
+    Rel(finAPI, finDB, "Читает/пишет", "JDBC")
+    Rel(finETL, finDB, "Инкрементальная выгрузка", "JDBC")
+}
+
+System_Boundary(pharma, "Домен 'Фарма'") {
+    Container(pharmaAPI, "Pharma API", "Java", "Партии, серии, логистика")
+    ContainerDb(pharmaDB, "Pharma DB", "PostgreSQL", "Операционные фарма-данные")
+    Container(pharmaETL, "Pharma ETL", "Spark", "Публикация в Lakehouse")
+    Rel(pharmaAPI, pharmaDB, "Читает/пишет", "JDBC")
+    Rel(pharmaETL, pharmaDB, "Инкрементальная выгрузка", "JDBC")
+}
+
+System_Boundary(portal, "Портал самообслуживания") {
+    Container(reportPortal, "Report Portal UI", "React", "Конструктор отчётов")
+    Container(portalAPI, "Portal API", "Node.js", "Метаданные и вызов цифр")
+    ContainerDb(portalDB, "Portal DB", "PostgreSQL", "Пользователи, роли, дашборды")
+    Rel(reportPortal, portalAPI, "REST /meta + /data", "HTTPS")
+    Rel(portalAPI, portalDB, "читает/пишет мета", "JDBC")
+}
+
+System_Boundary(integration, "Слой интеграции") {
+    Container(kafka, "Kafka", "Event Bus", "События доменов")
+    Container(schema, "Schema Registry", "Confluent", "Avro/Protobuf контракты")
+}
+
+Rel(business, kong, "1. Логин / запрос", "HTTPS")
+Rel(kong, reportPortal, "2. Прокси → UI", "HTTPS")
+Rel(kong, portalAPI, "3. Прокси → API", "HTTPS")
+Rel(portalAPI, kong, "4. /data/{витрина}?фильтры", "HTTPS")
+Rel(kong, qBridge, "5. Прокси → Bridge", "HTTPS")
+Rel(qBridge, dremio, "6. SQL на витрину", "JDBC")
+Rel(qBridge, gold, "читает Delta", "Delta Lake API")
+Rel(qBridge, portalAPI, "7. JSON результат", "200 OK")
+
+Rel(clinicETL, kafka, "Публикует события", "Avro")
+Rel(finETL, kafka, "Публикует события", "Avro")
+Rel(aiETL, kafka, "Публикует предикты", "Avro")
+Rel(pharmaETL, kafka, "Публикует события", "Avro")
+Rel(kafka, bronze, "Landing", "Spark Streaming")
+Rel(bronze, silver, "ETL", "Spark")
+Rel(silver, gold, "Агрегация", "Spark")
+
+Rel(oldDWH, silver, "Историческая выгрузка", "Batch")
+
+Rel(dataEng, dremio, "Ad-hoc SQL", "ODBC")
+@enduml
